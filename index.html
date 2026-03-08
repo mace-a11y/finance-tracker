@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Finance Tracker</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">PF</div>
+            <h1>Finance Tracker</h1>
+            <label class="theme-toggle" title="Toggle light/dark mode">
+                <input type="checkbox" id="theme-switch">
+                <span class="toggle-track">
+                    <span class="toggle-icon light-icon">&#9788;</span>
+                    <span class="toggle-icon dark-icon">&#9790;</span>
+                    <span class="toggle-thumb"></span>
+                </span>
+            </label>
+        </div>
+        <ul class="nav-list">
+            <li class="nav-item active" data-tab="dashboard">
+                <span class="nav-icon">&#9632;</span>Dashboard
+            </li>
+            <li class="nav-item" data-tab="key-ratios">
+                <span class="nav-icon">&#9670;</span>Key Ratios
+            </li>
+            <li class="nav-item" data-tab="income-expenses">
+                <span class="nav-icon">&#8644;</span>Income & Fixed Outgoings
+            </li>
+            <li class="nav-item" data-tab="debt-register">
+                <span class="nav-icon">&#9888;</span>Debt Register
+            </li>
+            <li class="nav-item" data-tab="asset-register">
+                <span class="nav-icon">&#9733;</span>Asset Register
+            </li>
+            <li class="nav-item" data-tab="liquidity">
+                <span class="nav-icon">&#9679;</span>Liquidity & Reserves
+            </li>
+            <li class="nav-item" data-tab="variable-spending">
+                <span class="nav-icon">&#8226;</span>Variable Spending
+            </li>
+            <li class="nav-item" data-tab="net-worth-history">
+                <span class="nav-icon">&#8593;</span>Net Worth History
+            </li>
+            <li class="nav-item" data-tab="btc-leverage">
+                <span class="nav-icon">&#8383;</span>BTC Leverage
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <button id="btn-export" class="btn btn-sm btn-outline" title="Export data as JSON">Export Data</button>
+            <button id="btn-import" class="btn btn-sm btn-outline" title="Import data from JSON">Import Data</button>
+            <input type="file" id="import-file" accept=".json" style="display:none">
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <div class="main-header">
+            <div class="currency-switch">
+                <button class="currency-btn active" data-currency="GBP">&#163; GBP</button>
+                <button class="currency-btn" data-currency="USD">$ USD</button>
+                <button class="currency-btn" data-currency="QAR">&#1585;.&#1602; QAR</button>
+            </div>
+        </div>
+        <section id="dashboard" class="tab-content active"></section>
+        <section id="key-ratios" class="tab-content"></section>
+        <section id="income-expenses" class="tab-content"></section>
+        <section id="debt-register" class="tab-content"></section>
+        <section id="asset-register" class="tab-content"></section>
+        <section id="liquidity" class="tab-content"></section>
+        <section id="variable-spending" class="tab-content"></section>
+        <section id="net-worth-history" class="tab-content"></section>
+        <section id="btc-leverage" class="tab-content"></section>
+    </main>
+
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modal-title"></h2>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <form id="modal-form" class="modal-body"></form>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" id="modal-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="modal-save">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
