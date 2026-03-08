@@ -26,6 +26,139 @@ let currentCurrency = 'GBP';
 let exchangeRates = { GBP: 1, USD: 1.27, QAR: 4.63 };
 let btcPriceUSD = null;
 
+// ── Sort & Filter State ───────────────────────────────────────
+const tableState = {
+    incomeExpenses: { sortKey: null, sortDir: 'asc', filters: {} },
+    debts:          { sortKey: null, sortDir: 'asc', filters: {} },
+    assets:         { sortKey: null, sortDir: 'asc', filters: {} }
+};
+
+function toggleSort(table, key) {
+    const st = tableState[table];
+    if (st.sortKey === key) { st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc'; }
+    else { st.sortKey = key; st.sortDir = 'asc'; }
+    renderAll();
+}
+
+function toggleFilter(table, key, value) {
+    const st = tableState[table];
+    if (!st.filters[key]) st.filters[key] = [];
+    const idx = st.filters[key].indexOf(value);
+    if (idx === -1) { st.filters[key].push(value); } else { st.filters[key].splice(idx, 1); }
+    if (st.filters[key].length === 0) delete st.filters[key];
+    renderAll();
+    // Re-open the filter panel after render rebuilt the DOM
+    const panel = document.getElementById('mf-panel-' + table);
+    if (panel) panel.classList.add('open');
+}
+
+function clearFilters(table) {
+    tableState[table].filters = {};
+    renderAll();
+}
+
+function applyFilters(rows, table) {
+    const filters = tableState[table].filters;
+    return rows.filter(r => {
+        for (const [key, vals] of Object.entries(filters)) {
+            if (!Array.isArray(vals) || vals.length === 0) continue;
+            const rv = String(r[key] || '');
+            if (!vals.some(v => v.toLowerCase() === rv.toLowerCase())) return false;
+        }
+        return true;
+    });
+}
+
+function applySort(rows, table, valueFn) {
+    const st = tableState[table];
+    if (!st.sortKey) return rows;
+    const sorted = [...rows].sort((a, b) => {
+        let va = valueFn ? valueFn(a, st.sortKey) : a[st.sortKey];
+        let vb = valueFn ? valueFn(b, st.sortKey) : b[st.sortKey];
+        if (va == null) va = '';
+        if (vb == null) vb = '';
+        if (typeof va === 'number' && typeof vb === 'number') return va - vb;
+        return String(va).localeCompare(String(vb), undefined, {numeric: true});
+    });
+    return st.sortDir === 'desc' ? sorted.reverse() : sorted;
+}
+
+function sortIcon(table, key) {
+    const st = tableState[table];
+    if (st.sortKey !== key) return '<span class="sort-icon">&#8693;</span>';
+    return st.sortDir === 'asc' ? '<span class="sort-icon active">&#9650;</span>' : '<span class="sort-icon active">&#9660;</span>';
+}
+
+function sortTh(table, key, label, align) {
+    const style = align === 'right' ? ' style="text-align:right"' : '';
+    return `<th class="sortable" onclick="toggleSort('${table}','${key}')"${style}>${label} ${sortIcon(table, key)}</th>`;
+}
+
+function activeFilterCount(table) {
+    return Object.values(tableState[table].filters).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0);
+}
+
+// Master filter configs per table
+const FILTER_CONFIGS = {
+    incomeExpenses: [
+        { key: 'direction', label: 'Direction', options: DIR_OPTIONS },
+        { key: 'category', label: 'Category', options: CATEGORY_OPTIONS },
+        { key: 'frequency', label: 'Frequency', options: FREQ_OPTIONS }
+    ],
+    debts: [
+        { key: 'type', label: 'Type', options: DEBT_TYPES },
+        { key: 'secured', label: 'Secured', options: YN }
+    ],
+    assets: [
+        { key: 'class', label: 'Class', options: ASSET_CLASSES },
+        { key: 'liquid', label: 'Liquid', options: YN },
+        { key: 'primaryResidence', label: 'Primary Res.', options: YN }
+    ]
+};
+
+function toggleMasterFilter(table) {
+    const panel = document.getElementById('mf-panel-' + table);
+    if (!panel) return;
+    panel.classList.toggle('open');
+}
+
+function buildMasterFilterPanel(table) {
+    const configs = FILTER_CONFIGS[table];
+    if (!configs) return '';
+    const fc = activeFilterCount(table);
+    const btnLabel = fc > 0 ? `Filter (${fc})` : 'Filter';
+    let panelContent = '';
+    configs.forEach(cfg => {
+        const selected = tableState[table].filters[cfg.key] || [];
+        let opts = '';
+        cfg.options.forEach(o => {
+            const checked = selected.includes(o);
+            opts += `<label class="mf-option${checked ? ' checked' : ''}" onclick="event.stopPropagation();toggleFilter('${table}','${cfg.key}','${o.replace(/'/g,"\\'")}')">
+                <span class="mf-tick">${checked ? '&#10003;' : ''}</span><span>${o}</span></label>`;
+        });
+        panelContent += `<div class="mf-group">
+            <div class="mf-group-label">${cfg.label}</div>
+            <div class="mf-options">${opts}</div>
+        </div>`;
+    });
+
+    return `<div class="mf-wrap">
+        <button class="btn ${fc > 0 ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="toggleMasterFilter('${table}')">&#9776; ${btnLabel}</button>
+        ${fc > 0 ? `<button class="btn btn-ghost btn-xs" onclick="clearFilters('${table}')">Clear</button>` : ''}
+        <div class="mf-panel" id="mf-panel-${table}">
+            <div class="mf-panel-header">Filter</div>
+            ${panelContent}
+        </div>
+    </div>`;
+}
+
+// Close filter panels when clicking outside (use mousedown to fire before onclick rebuilds DOM)
+document.addEventListener('mousedown', e => {
+    if (!e.target.closest('.mf-wrap')) {
+        document.querySelectorAll('.mf-panel.open').forEach(p => p.classList.remove('open'));
+    }
+});
+
 // ── Default Data (mirroring Excel) ─────────────────────────────
 const DEFAULT_DATA = {
     settings: {
@@ -156,8 +289,19 @@ function updateBTCUnrealized() {
     });
     computed.btcTotalUnrealizedPnL = totalUnrealized;
     computed.btcLivePriceUSD = btcPriceUSD;
+
+    // Recalculate BTC asset P&L for asset register
+    const oldBtcGBP = computed.btcAssetPnLGBP > 0 ? computed.btcAssetPnLGBP : 0;
+    computed.btcAssetPnL = totalUnrealized + (computed.btcTotalRealizedPnL || 0);
+    computed.btcAssetPnLGBP = exchangeRates.USD ? computed.btcAssetPnL / exchangeRates.USD : computed.btcAssetPnL;
+    const newBtcGBP = computed.btcAssetPnLGBP > 0 ? computed.btcAssetPnLGBP : 0;
+    computed.totalAssets += (newBtcGBP - oldBtcGBP);
+    computed.netWorth = computed.totalAssets - computed.totalDebt;
+
     const btcTab = document.getElementById('btc-leverage');
     if (btcTab && btcTab.classList.contains('active')) renderBTCLeverage();
+    const assetTab = document.getElementById('asset-register');
+    if (assetTab && assetTab.classList.contains('active')) renderAssetRegister();
 }
 
 // ── Formula Engine ─────────────────────────────────────────────
@@ -213,6 +357,16 @@ function computeAll() {
         else assetByClass['Other'] += a.value || 0;
     });
     c.assetAllocation = assetByClass;
+
+    // BTC P&L as synthetic asset — only count positive P&L toward totals
+    c.btcAssetPnL = (c.btcTotalUnrealizedPnL || 0) + (c.btcTotalRealizedPnL || 0);
+    // Convert from USD to GBP for asset tracking
+    c.btcAssetPnLGBP = exchangeRates.USD ? c.btcAssetPnL / exchangeRates.USD : c.btcAssetPnL;
+    if (c.btcAssetPnLGBP > 0) {
+        c.totalAssets += c.btcAssetPnLGBP;
+        if ('Crypto' in assetByClass) assetByClass['Crypto'] += c.btcAssetPnLGBP;
+        else assetByClass['Other'] += c.btcAssetPnLGBP;
+    }
 
     // Liquidity
     c.totalLiquidCash = 0;
@@ -489,27 +643,50 @@ function renderKeyRatios() {
 // ── Income & Fixed Outgoings ───────────────────────────────────
 function renderIncomeExpenses() {
     const c = computed;
+    const tbl = 'incomeExpenses';
+    // Attach original index, apply filters then sort
+    let rows = data.incomeExpenses.map((r, i) => ({...r, _idx: i, _monthly: toMonthly(r.amount, r.frequency)}));
+    rows = applyFilters(rows, tbl);
+    rows = applySort(rows, tbl, (r, k) => k === 'amount' ? r.amount : k === 'monthly' ? r._monthly : k === 'annual' ? r._monthly * 12 : r[k]);
+
+    const fc = activeFilterCount(tbl);
     let html = `<h2 class="page-title">Income & Fixed Outgoings</h2>`;
-    html += `<div class="section-header"><h3>${data.incomeExpenses.length} entries</h3>
+    html += `<div class="filter-bar">${buildMasterFilterPanel(tbl)}</div>`;
+    html += `<div class="section-header"><h3>${rows.length} of ${data.incomeExpenses.length} entries</h3>
         <button class="btn btn-primary btn-sm" onclick="openForm('incomeExpenses')">+ Add Entry</button></div>`;
     html += `<div class="table-wrap"><table><thead><tr>
-        <th>Direction</th><th>Category</th><th>Description</th><th>Frequency</th>
-        <th style="text-align:right">Amount</th><th style="text-align:right">Monthly Eq</th><th style="text-align:right">Annual Eq</th>
+        ${sortTh(tbl,'direction','Direction')}${sortTh(tbl,'category','Category')}${sortTh(tbl,'description','Description')}${sortTh(tbl,'frequency','Frequency')}
+        ${sortTh(tbl,'amount','Amount','right')}${sortTh(tbl,'monthly','Monthly Eq','right')}${sortTh(tbl,'annual','Annual Eq','right')}
         <th>Notes</th><th style="width:70px"></th></tr></thead><tbody>`;
-    if (data.incomeExpenses.length === 0) html += `<tr class="empty-row"><td colspan="9">No entries yet</td></tr>`;
-    data.incomeExpenses.forEach((r, i) => {
-        const m = toMonthly(r.amount, r.frequency);
+    if (rows.length === 0) html += `<tr class="empty-row"><td colspan="9">No entries match filters</td></tr>`;
+    rows.forEach(r => {
         html += `<tr>
             <td><span class="tag ${r.direction==='Income'?'tag-income':'tag-expense'}">${escHtml(r.direction)}</span></td>
             <td>${escHtml(r.category)}</td><td>${escHtml(r.description)}</td><td>${escHtml(r.frequency)}</td>
-            <td class="num">${fmtGBP(r.amount)}</td><td class="num">${fmtGBP(m)}</td><td class="num">${fmtGBP(m*12)}</td>
+            <td class="num">${fmtGBP(r.amount)}</td><td class="num">${fmtGBP(r._monthly)}</td><td class="num">${fmtGBP(r._monthly*12)}</td>
             <td style="color:var(--text-muted);font-size:12px">${escHtml(r.notes)}</td>
             <td class="actions">
-                <button class="btn-icon" onclick="openForm('incomeExpenses',${i})" title="Edit">&#9998;</button>
-                <button class="btn-icon danger" onclick="deleteRow('incomeExpenses',${i})" title="Delete">&times;</button>
+                <button class="btn-icon" onclick="openForm('incomeExpenses',${r._idx})" title="Edit">&#9998;</button>
+                <button class="btn-icon danger" onclick="deleteRow('incomeExpenses',${r._idx})" title="Delete">&times;</button>
             </td></tr>`;
     });
     html += `</tbody></table></div>`;
+
+    // Filtered summary — expenses/outgoings only from visible rows
+    if (fc > 0) {
+        const filtExpenses = rows.filter(r => r.direction === 'Expense');
+        const filtMonthlyExp = filtExpenses.reduce((s, r) => s + r._monthly, 0);
+        const filtAnnualExp = filtMonthlyExp * 12;
+        const filtCount = filtExpenses.length;
+        html += `<div class="filtered-summary">
+            <div class="filtered-summary-title">Filtered Totals (${rows.length} entries)</div>
+            <div class="summary-cards">
+                <div class="summary-card"><div class="sc-label">Filtered Expenses (${filtCount})</div><div class="sc-value negative">${fmtGBP(filtMonthlyExp)}</div><div class="sc-sub">per month</div></div>
+                <div class="summary-card"><div class="sc-label">Filtered Annual Expenses</div><div class="sc-value negative">${fmtGBP(filtAnnualExp)}</div><div class="sc-sub">per year</div></div>
+            </div>
+        </div>`;
+    }
+
     html += `<div class="summary-cards">
         <div class="summary-card"><div class="sc-label">Gross Monthly Income</div><div class="sc-value positive">${fmtGBP(c.grossMonthlyIncome)}</div></div>
         <div class="summary-card"><div class="sc-label">Fixed Monthly Expenses</div><div class="sc-value negative">${fmtGBP(c.fixedMonthlyExpenses)}</div></div>
@@ -523,30 +700,62 @@ function renderIncomeExpenses() {
 // ── Debt Register ──────────────────────────────────────────────
 function renderDebtRegister() {
     const c = computed;
+    const tbl = 'debts';
+    let rows = data.debts.map((d, i) => ({...d, _idx: i, _monthlyPmt: toMonthly(d.payAmount, d.payFrequency), _estInterest: (d.balance||0)*(d.apr||0)/12}));
+    rows.forEach(r => r._estPrincipal = Math.max(0, r._monthlyPmt - r._estInterest));
+    rows = applyFilters(rows, tbl);
+    rows = applySort(rows, tbl, (r, k) => {
+        if (k === 'balance') return r.balance;
+        if (k === 'apr') return r.apr;
+        if (k === 'monthlyPmt') return r._monthlyPmt;
+        if (k === 'estInterest') return r._estInterest;
+        if (k === 'payAmount') return r.payAmount;
+        return r[k];
+    });
+
+    const fc = activeFilterCount(tbl);
     let html = `<h2 class="page-title">Debt Register</h2>`;
-    html += `<div class="section-header"><h3>${data.debts.length} debts</h3>
+    html += `<div class="filter-bar">${buildMasterFilterPanel(tbl)}</div>`;
+    html += `<div class="section-header"><h3>${rows.length} of ${data.debts.length} debts</h3>
         <button class="btn btn-primary btn-sm" onclick="openForm('debts')">+ Add Debt</button></div>`;
     html += `<div class="table-wrap"><table><thead><tr>
-        <th>Type</th><th>Lender</th><th style="text-align:right">Balance</th><th style="text-align:right">APR</th>
-        <th>Pay Freq</th><th style="text-align:right">Payment</th><th style="text-align:right">Monthly Pmt</th>
-        <th style="text-align:right">Est Interest</th><th style="text-align:right">Est Principal</th>
+        ${sortTh(tbl,'type','Type')}${sortTh(tbl,'lender','Lender')}${sortTh(tbl,'balance','Balance','right')}${sortTh(tbl,'apr','APR','right')}
+        <th>Pay Freq</th>${sortTh(tbl,'payAmount','Payment','right')}${sortTh(tbl,'monthlyPmt','Monthly Pmt','right')}
+        ${sortTh(tbl,'estInterest','Est Interest','right')}<th style="text-align:right">Est Principal</th>
         <th>Secured</th><th style="width:70px"></th></tr></thead><tbody>`;
-    if (data.debts.length === 0) html += `<tr class="empty-row"><td colspan="11">No debts registered</td></tr>`;
-    data.debts.forEach((d, i) => {
-        const mp = toMonthly(d.payAmount, d.payFrequency);
-        const mi = (d.balance||0) * (d.apr||0) / 12;
-        const pr = Math.max(0, mp - mi);
+    if (rows.length === 0) html += `<tr class="empty-row"><td colspan="11">No debts match filters</td></tr>`;
+    rows.forEach(r => {
         html += `<tr>
-            <td><span class="tag tag-blue">${escHtml(d.type)}</span></td>
-            <td>${escHtml(d.lender)}</td><td class="num negative">${fmtGBP(d.balance)}</td><td class="num">${fmtPct(d.apr)}</td>
-            <td>${escHtml(d.payFrequency)}</td><td class="num">${fmtGBP(d.payAmount)}</td><td class="num">${fmtGBP(mp)}</td>
-            <td class="num negative">${fmtGBP(mi)}</td><td class="num positive">${fmtGBP(pr)}</td><td>${d.secured}</td>
+            <td><span class="tag tag-debt-${r.type.replace(/\s+/g,'-').toLowerCase()}">${escHtml(r.type)}</span></td>
+            <td>${escHtml(r.lender)}</td><td class="num negative">${fmtGBP(r.balance)}</td><td class="num">${fmtPct(r.apr)}</td>
+            <td>${escHtml(r.payFrequency)}</td><td class="num">${fmtGBP(r.payAmount)}</td><td class="num">${fmtGBP(r._monthlyPmt)}</td>
+            <td class="num negative">${fmtGBP(r._estInterest)}</td><td class="num positive">${fmtGBP(r._estPrincipal)}</td><td>${r.secured}</td>
             <td class="actions">
-                <button class="btn-icon" onclick="openForm('debts',${i})" title="Edit">&#9998;</button>
-                <button class="btn-icon danger" onclick="deleteRow('debts',${i})" title="Delete">&times;</button>
+                <button class="btn-icon" onclick="openForm('debts',${r._idx})" title="Edit">&#9998;</button>
+                <button class="btn-icon danger" onclick="deleteRow('debts',${r._idx})" title="Delete">&times;</button>
             </td></tr>`;
     });
     html += `</tbody></table></div>`;
+
+    // Filtered summary — debt payments/balances from visible rows only
+    if (fc > 0) {
+        const filtBalance = rows.reduce((s, r) => s + (r.balance || 0), 0);
+        const filtMonthlyPmt = rows.reduce((s, r) => s + r._monthlyPmt, 0);
+        const filtInterest = rows.reduce((s, r) => s + r._estInterest, 0);
+        const filtPrincipal = rows.reduce((s, r) => s + r._estPrincipal, 0);
+        const filtWtdAPR = filtBalance > 0 ? rows.reduce((s, r) => s + (r.balance||0)*(r.apr||0), 0) / filtBalance : 0;
+        html += `<div class="filtered-summary">
+            <div class="filtered-summary-title">Filtered Totals (${rows.length} debts)</div>
+            <div class="summary-cards">
+                <div class="summary-card"><div class="sc-label">Filtered Balance</div><div class="sc-value negative">${fmtGBP(filtBalance)}</div></div>
+                <div class="summary-card"><div class="sc-label">Filtered Monthly Payments</div><div class="sc-value negative">${fmtGBP(filtMonthlyPmt)}</div></div>
+                <div class="summary-card"><div class="sc-label">Filtered Est. Interest</div><div class="sc-value negative">${fmtGBP(filtInterest)}</div><div class="sc-sub">per month</div></div>
+                <div class="summary-card"><div class="sc-label">Filtered Est. Principal</div><div class="sc-value positive">${fmtGBP(filtPrincipal)}</div><div class="sc-sub">per month</div></div>
+                <div class="summary-card"><div class="sc-label">Filtered Wtd Avg APR</div><div class="sc-value warning">${fmtPct(filtWtdAPR)}</div></div>
+            </div>
+        </div>`;
+    }
+
     html += `<div class="summary-cards">
         <div class="summary-card"><div class="sc-label">Total Debt Balance</div><div class="sc-value negative">${fmtGBP(c.totalDebt)}</div></div>
         <div class="summary-card"><div class="sc-label">Total Monthly Payments</div><div class="sc-value negative">${fmtGBP(c.totalMonthlyDebtPayments)}</div></div>
@@ -558,26 +767,64 @@ function renderDebtRegister() {
 // ── Asset Register ─────────────────────────────────────────────
 function renderAssetRegister() {
     const c = computed;
+    const tbl = 'assets';
+    let rows = data.assets.map((a, i) => ({...a, _idx: i}));
+    rows = applyFilters(rows, tbl);
+    rows = applySort(rows, tbl, (r, k) => k === 'value' ? r.value : r[k]);
+
+    const fc = activeFilterCount(tbl);
     let html = `<h2 class="page-title">Asset Register</h2>`;
-    html += `<div class="section-header"><h3>${data.assets.length} assets</h3>
+    html += `<div class="filter-bar">${buildMasterFilterPanel(tbl)}</div>`;
+    html += `<div class="section-header"><h3>${rows.length} of ${data.assets.length} assets</h3>
         <button class="btn btn-primary btn-sm" onclick="openForm('assets')">+ Add Asset</button></div>`;
     html += `<div class="table-wrap"><table><thead><tr>
-        <th>Class</th><th>Description</th><th style="text-align:right">Value</th>
-        <th>Valuation Date</th><th>Liquid</th><th>Custodian</th><th>Primary Res.</th>
+        ${sortTh(tbl,'class','Class')}${sortTh(tbl,'description','Description')}${sortTh(tbl,'value','Value','right')}
+        ${sortTh(tbl,'valuationDate','Valuation Date')}<th>Liquid</th><th>Custodian</th><th>Primary Res.</th>
         <th>Notes</th><th style="width:70px"></th></tr></thead><tbody>`;
-    if (data.assets.length === 0) html += `<tr class="empty-row"><td colspan="9">No assets registered</td></tr>`;
-    data.assets.forEach((a, i) => {
+    if (rows.length === 0) html += `<tr class="empty-row"><td colspan="9">No assets match filters</td></tr>`;
+    rows.forEach(r => {
         html += `<tr>
-            <td><span class="tag tag-income">${escHtml(a.class)}</span></td>
-            <td>${escHtml(a.description)}</td><td class="num positive">${fmtGBP(a.value)}</td>
-            <td>${fmtDate(a.valuationDate)}</td><td>${a.liquid}</td><td>${escHtml(a.custodian)}</td><td>${a.primaryResidence}</td>
-            <td style="color:var(--text-muted);font-size:12px">${escHtml(a.notes)}</td>
+            <td><span class="tag tag-income">${escHtml(r.class)}</span></td>
+            <td>${escHtml(r.description)}</td><td class="num positive">${fmtGBP(r.value)}</td>
+            <td>${fmtDate(r.valuationDate)}</td><td>${r.liquid}</td><td>${escHtml(r.custodian)}</td><td>${r.primaryResidence}</td>
+            <td style="color:var(--text-muted);font-size:12px">${escHtml(r.notes)}</td>
             <td class="actions">
-                <button class="btn-icon" onclick="openForm('assets',${i})" title="Edit">&#9998;</button>
-                <button class="btn-icon danger" onclick="deleteRow('assets',${i})" title="Delete">&times;</button>
+                <button class="btn-icon" onclick="openForm('assets',${r._idx})" title="Edit">&#9998;</button>
+                <button class="btn-icon danger" onclick="deleteRow('assets',${r._idx})" title="Delete">&times;</button>
             </td></tr>`;
     });
+
+    // Synthetic BTC P&L asset row
+    const btcPnL = c.btcAssetPnLGBP || 0;
+    const btcPositionCount = (data.btcPositions || []).filter(p => p.status === 'Open').length;
+    if (btcPositionCount > 0) {
+        const pnlClass = btcPnL >= 0 ? 'positive' : 'negative';
+        const countedNote = btcPnL > 0 ? 'Included in totals' : 'Not included in totals (negative)';
+        html += `<tr class="btc-asset-row">
+            <td><span class="tag tag-btc">Crypto</span></td>
+            <td>BTC Leverage P&L</td><td class="num ${pnlClass}">${fmtGBP(btcPnL)}</td>
+            <td>Live</td><td>-</td><td>-</td><td>N</td>
+            <td style="color:var(--text-muted);font-size:12px">${countedNote}</td>
+            <td class="actions"><span style="color:var(--text-muted);font-size:11px">Auto</span></td></tr>`;
+    }
+
     html += `</tbody></table></div>`;
+
+    // Filtered summary — asset values from visible rows only
+    if (fc > 0) {
+        const filtTotal = rows.reduce((s, r) => s + (r.value || 0), 0);
+        const filtLiquid = rows.filter(r => r.liquid === 'Y').reduce((s, r) => s + (r.value || 0), 0);
+        const filtIlliquid = filtTotal - filtLiquid;
+        html += `<div class="filtered-summary">
+            <div class="filtered-summary-title">Filtered Totals (${rows.length} assets)</div>
+            <div class="summary-cards">
+                <div class="summary-card"><div class="sc-label">Filtered Total Value</div><div class="sc-value positive">${fmtGBP(filtTotal)}</div></div>
+                <div class="summary-card"><div class="sc-label">Filtered Liquid Value</div><div class="sc-value positive">${fmtGBP(filtLiquid)}</div></div>
+                <div class="summary-card"><div class="sc-label">Filtered Illiquid Value</div><div class="sc-value neutral">${fmtGBP(filtIlliquid)}</div></div>
+            </div>
+        </div>`;
+    }
+
     html += `<div class="summary-cards">
         <div class="summary-card"><div class="sc-label">Total Assets</div><div class="sc-value positive">${fmtGBP(c.totalAssets)}</div></div>
         <div class="summary-card"><div class="sc-label">Total Liquid Assets</div><div class="sc-value positive">${fmtGBP(c.totalLiquidAssets)}</div></div>
