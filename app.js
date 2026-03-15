@@ -1,3 +1,8 @@
+// ── Railway Sync Config ────────────────────────────────────────
+// After deploying to Railway, paste your API URL here (no trailing slash)
+// e.g. 'https://finance-tracker-production.up.railway.app'
+const RAILWAY_URL = '';
+
 // ── Constants ──────────────────────────────────────────────────
 const FREQ_OPTIONS = ['Monthly','Weekly','Fortnightly','Annual'];
 const DIR_OPTIONS = ['Expense','Income'];
@@ -242,8 +247,58 @@ function loadData() {
     if (!data.settings) data.settings = JSON.parse(JSON.stringify(DEFAULT_DATA.settings));
 }
 
+// Pull latest data from Railway and refresh the UI
+async function loadFromCloud() {
+    if (!RAILWAY_URL) return;
+    setSyncStatus('saving');
+    try {
+        const res = await fetch(`${RAILWAY_URL}/api/data`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (json.data && typeof json.data === 'object' && Object.keys(json.data).length > 0) {
+            data = json.data;
+            for (const k of Object.keys(DEFAULT_DATA)) {
+                if (!(k in data)) data[k] = JSON.parse(JSON.stringify(DEFAULT_DATA[k]));
+            }
+            if (!data.settings) data.settings = JSON.parse(JSON.stringify(DEFAULT_DATA.settings));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            renderAll();
+        }
+        setSyncStatus('synced');
+    } catch(e) {
+        console.warn('Cloud load failed, using localStorage:', e.message);
+        setSyncStatus('offline');
+    }
+}
+
 function saveData() {
+    // Always write to localStorage immediately (instant + offline fallback)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    // Async push to Railway if configured
+    if (RAILWAY_URL) {
+        setSyncStatus('saving');
+        fetch(`${RAILWAY_URL}/api/data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data })
+        })
+        .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); setSyncStatus('synced'); })
+        .catch(e => { console.warn('Cloud save failed:', e.message); setSyncStatus('offline'); });
+    }
+}
+
+// ── Sync Indicator ─────────────────────────────────────────────
+function setSyncStatus(status) {
+    const el = document.getElementById('sync-indicator');
+    if (!el) return;
+    if (!RAILWAY_URL) { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    const dot = el.querySelector('.sync-dot');
+    const label = el.querySelector('.sync-label');
+    dot.className = 'sync-dot';
+    if (status === 'synced')  { dot.classList.add('synced');  label.textContent = 'Synced'; }
+    if (status === 'saving')  { dot.classList.add('saving');  label.textContent = 'Saving…'; }
+    if (status === 'offline') { dot.classList.add('offline'); label.textContent = 'Offline'; }
 }
 
 // ── Exchange Rates ─────────────────────────────────────────────
@@ -1298,6 +1353,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setupNav();
     renderAll();
+
+    // Init sync indicator visibility
+    setSyncStatus('synced');
+
+    // Pull latest from Railway (will re-render if newer data found)
+    loadFromCloud();
 
     // Fetch live rates then re-render
     fetchExchangeRates().then(() => { if (currentCurrency !== 'GBP') renderAll(); });

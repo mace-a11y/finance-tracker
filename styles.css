@@ -33,6 +33,15 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 .nav-icon{font-size:11px;width:18px;text-align:center;flex-shrink:0}
 .sidebar-footer{padding:12px;border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap}
 
+/* Sync Indicator */
+.sync-indicator{display:flex;align-items:center;gap:6px;width:100%;padding:4px 2px;margin-bottom:4px}
+.sync-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;transition:background .3s}
+.sync-dot.synced{background:#10b981;box-shadow:0 0 6px rgba(16,185,129,.5)}
+.sync-dot.saving{background:#f59e0b;box-shadow:0 0 6px rgba(245,158,11,.5);animation:pulse-dot 1s infinite}
+.sync-dot.offline{background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,.4)}
+.sync-label{font-size:11px;color:var(--text-muted)}
+@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.4}}
+
 /* Theme Toggle */
 .theme-toggle{display:flex;align-items:center;cursor:pointer;user-select:none}
 .theme-toggle input{display:none}
