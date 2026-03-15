@@ -1,7 +1,7 @@
 // ── Railway Sync Config ────────────────────────────────────────
 // After deploying to Railway, paste your API URL here (no trailing slash)
 // e.g. 'https://finance-tracker-production.up.railway.app'
-const RAILWAY_URL = 'https://finance-tracker-production-5cda.up.railway.app';
+const RAILWAY_URL = 'https://finance-tracker-production-6979.up.railway.app';
 
 // ── Constants ──────────────────────────────────────────────────
 const FREQ_OPTIONS = ['Monthly','Weekly','Fortnightly','Annual'];
